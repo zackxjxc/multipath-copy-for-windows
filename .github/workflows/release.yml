@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish Windows x64 release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v6
+
+      - name: Validate version and tag
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+              throw "VERSION must use the MAJOR.MINOR.PATCH format."
+          }
+          $expectedTag = "v$version"
+          if ($env:RELEASE_TAG -ne $expectedTag) {
+              throw "Tag '$env:RELEASE_TAG' does not match VERSION '$version'. Expected '$expectedTag'."
+          }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8
+
+      - name: Configure
+        run: cmake -S . -B .build -A x64
+
+      - name: Build
+        run: cmake --build .build --config Release
+
+      - name: Install
+        run: cmake --install .build --config Release --prefix output
+
+      - name: Verify executable version
+        shell: pwsh
+        env:
+          PROJECT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $versionInfo = (Get-Item -LiteralPath "output/MultiPathCopy.exe").VersionInfo
+          if ($versionInfo.ProductVersion -ne $env:PROJECT_VERSION) {
+              throw "ProductVersion is '$($versionInfo.ProductVersion)', expected '$env:PROJECT_VERSION'."
+          }
+          if ($versionInfo.FileVersion -ne "$env:PROJECT_VERSION.0") {
+              throw "FileVersion is '$($versionInfo.FileVersion)', expected '$env:PROJECT_VERSION.0'."
+          }
+
+      - name: Package release assets
+        id: package
+        shell: pwsh
+        env:
+          PROJECT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $packageName = "MultiPathCopy-$env:PROJECT_VERSION-windows-x64"
+          $packageDirectory = Join-Path $env:RUNNER_TEMP $packageName
+          $zipPath = Join-Path $PWD "output/$packageName.zip"
+          $checksumPath = Join-Path $PWD "output/MultiPathCopy-$env:PROJECT_VERSION-SHA256SUMS.txt"
+          $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
+
+          New-Item -ItemType Directory -Path $packageDirectory | Out-Null
+          Copy-Item -LiteralPath "output/MultiPathCopy.exe" -Destination $packageDirectory
+          Copy-Item -LiteralPath "README.md" -Destination $packageDirectory
+          Copy-Item -LiteralPath "CHANGELOG.md" -Destination $packageDirectory
+          Copy-Item -LiteralPath "VERSION" -Destination $packageDirectory
+          Compress-Archive -Path (Join-Path $packageDirectory "*") -DestinationPath $zipPath
+
+          $assetPaths = @($zipPath)
+          $hashLines = foreach ($assetPath in $assetPaths) {
+              $hash = Get-FileHash -LiteralPath $assetPath -Algorithm SHA256
+              "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($assetPath))"
+          }
+          [IO.File]::WriteAllText(
+              $checksumPath,
+              ($hashLines -join "`n") + "`n",
+              [Text.UTF8Encoding]::new($false)
+          )
+
+          $changelogLines = @(Get-Content -LiteralPath "CHANGELOG.md")
+          $headingPattern = '^## \[' + [regex]::Escape($env:PROJECT_VERSION) + '\](?:\s|$)'
+          $sectionStart = -1
+          for ($index = 0; $index -lt $changelogLines.Count; $index++) {
+              if ($changelogLines[$index] -match $headingPattern) {
+                  $sectionStart = $index
+                  break
+              }
+          }
+          if ($sectionStart -lt 0) {
+              throw "CHANGELOG.md does not contain a section for $env:PROJECT_VERSION."
+          }
+
+          $sectionEnd = $changelogLines.Count
+          for ($index = $sectionStart + 1; $index -lt $changelogLines.Count; $index++) {
+              if ($changelogLines[$index] -match '^## \[') {
+                  $sectionEnd = $index
+                  break
+              }
+          }
+          $releaseNotes = $changelogLines[$sectionStart..($sectionEnd - 1)] -join "`n"
+          [IO.File]::WriteAllText(
+              $notesPath,
+              $releaseNotes + "`n",
+              [Text.UTF8Encoding]::new($false)
+          )
+
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "zip_path=$zipPath" -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "checksum_path=$checksumPath" -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "notes_path=$notesPath" -Encoding utf8
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          CHECKSUM_PATH: ${{ steps.package.outputs.checksum_path }}
+          NOTES_PATH: ${{ steps.package.outputs.notes_path }}
+        run: |
+          $commandArguments = @(
+              "release", "create", $env:RELEASE_TAG,
+              $env:ZIP_PATH, $env:CHECKSUM_PATH,
+              "--verify-tag",
+              "--title", "MultiPath Copy for Windows $env:RELEASE_TAG",
+              "--notes-file", $env:NOTES_PATH,
+              "--fail-on-no-commits",
+              "--latest"
+          )
+          & gh @commandArguments
+          if ($LASTEXITCODE -ne 0) {
+              throw "GitHub Release creation failed with exit code $LASTEXITCODE."
+          }
