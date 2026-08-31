@@ -1,0 +1,19 @@
+# 编译输出
+/build/
+/.build/
+/output/
+*.exe
+*.obj
+*.pdb
+*.ilk
+
+# CMake 生成文件
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/Makefile
+
+# Visual Studio 本地文件
+/.vs/
+*.suo
+*.user

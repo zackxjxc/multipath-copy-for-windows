@@ -1,0 +1,6 @@
+# 源码和文档统一使用 LF。
+* text=auto eol=lf
+
+# Windows 批处理文件必须以 CRLF 检出。
+*.bat text eol=crlf
+*.cmd text eol=crlf
