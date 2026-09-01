@@ -1,5 +1,7 @@
 # MultiPath Copy for Windows
 
+简体中文 | [English](README_en.md)
+
 一个轻量、原生的 Windows 路径复制工具。在文件资源管理器中选中多个文件或文件夹后，可通过右键菜单一次复制所有完整路径。
 
 > 当前版本只提供中文菜单和中文命令行说明。
@@ -28,7 +30,8 @@
 ├── CMakeLists.txt                # CMake 构建配置
 ├── build-windows-x64.bat         # Windows x64 Release 构建脚本
 ├── VERSION                                # 唯一版本号来源
-└── README.md
+├── README.md
+└── README_en.md
 ```
 
 项目目前只有一个源文件，因此暂不拆分额外的头文件和源文件，避免不必要的工程复杂度。
