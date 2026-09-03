@@ -289,6 +289,9 @@ bool CopyToClipboard(const SharedHeader* header, const CopyOptions& options) {
 
     std::wstring clipboardText;
     for (const SortablePath& path : paths) {
+        if (!clipboardText.empty()) {
+            clipboardText += L"\r\n";
+        }
         std::wstring formattedPath = path.value;
         if (options.folderTrailingSlash && path.isDirectory && !formattedPath.empty() &&
             formattedPath.back() != L'\\') {
@@ -301,7 +304,6 @@ bool CopyToClipboard(const SharedHeader* header, const CopyOptions& options) {
         if (options.quotePaths) {
             clipboardText += L'\"';
         }
-        clipboardText += L"\r\n";
     }
 
     const size_t bytes = (clipboardText.size() + 1) * sizeof(wchar_t);
